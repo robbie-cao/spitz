@@ -3,9 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <fcntl.h>
 
 #include <sys/select.h>
 #include <sys/queue.h>
+
+#include <curl/curl.h>
+#include <sys/stat.h>
 
 #include "log.h"
 
@@ -27,6 +31,116 @@ struct entry {
 };
 
 TAILQ_HEAD(tailhead, entry) head_dq, head_uq;
+
+
+struct MemoryStruct {
+    char *memory;
+    size_t size;
+};
+
+static size_t
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+    size_t realsize = size * nmemb;
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+    mem->memory = realloc(mem->memory, mem->size + realsize + 1);
+    if(mem->memory == NULL) {
+        /* out of memory! */
+        printf("not enough memory (realloc returned NULL)\n");
+        return 0;
+    }
+
+    printf("\r\nGET RESPONSE:%s\r\n",(char *)contents);
+
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    free(mem->memory);
+
+    return realsize;
+}
+
+int file_upload(char *file_path)
+{
+    CURL *curl;
+    CURLcode res;
+    struct stat file_info;
+    double speed_upload, total_time;
+    FILE *fd;
+
+    struct MemoryStruct chunk;
+
+    chunk.memory = malloc(1);  /* will be grown as needed by the realloc above */
+    chunk.size = 0;    /* no data at this point */
+
+    fd = fopen(file_path, "rb"); /* open file to upload */
+    if (!fd) {
+        return 1; /* can't continue */
+    }
+
+    /* to get the file size */
+    if (fstat(fileno(fd), &file_info) != 0) {
+        return 1; /* can't continue */
+    }
+
+    curl = curl_easy_init();
+
+    if (!curl) {
+        return 1;
+    }
+
+    /*   */
+    struct curl_httppost* post = NULL;
+    struct curl_httppost* last = NULL;
+
+    curl_formadd(&post, &last, CURLFORM_COPYNAME, "filename", CURLFORM_FILE, file_path, CURLFORM_END);
+
+    /* upload to this place */
+    curl_easy_setopt(curl, CURLOPT_URL,"http://test.muabaobao.com/record/upload");
+
+    /* send all data to this function  */
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+
+    /* we pass our 'chunk' struct to the callback function */
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+
+    /* tell it to "upload" to the URL */
+    curl_easy_setopt(curl, CURLOPT_HTTPPOST, post);
+
+    /* set where to read from (on Windows you need to use READFUNCTION too) */
+    //curl_easy_setopt(curl, CURLOPT_READDATA, fd);
+
+    /* and give the size of the upload (optional) */
+    curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)file_info.st_size);
+
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (curl_off_t)file_info.st_size);
+
+    /* enable verbose for easier tracing */
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+    res = curl_easy_perform(curl);
+    /* Check for errors */
+    if (res != CURLE_OK) {
+        fprintf(stderr, "curl_easy_perform() failed: %s\n",
+                curl_easy_strerror(res));
+
+    } else {
+        /* now extract transfer info */
+        curl_easy_getinfo(curl, CURLINFO_SPEED_UPLOAD, &speed_upload);
+        curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
+
+        fprintf(stderr, "Speed: %.3f bytes/sec during %.3f seconds\n",
+                speed_upload, total_time);
+    }
+    /* always cleanup */
+    curl_easy_cleanup(curl);
+    curl_formfree(post);
+
+    return 0;
+}
+
 
 void thread_stdin_handler(int *arg)
 {
@@ -65,10 +179,10 @@ void thread_stdin_handler(int *arg)
                     break;
                 case '2':
                     LOGD(LOG_TAG, "Wakeup T2\n");
-                    if (buf[1] == '2') {
+                    if (strlen(buf + 1)) {
                         LOGD(LOG_TAG, "Wakeup T2\n");
                         item = malloc(sizeof(*item));
-                        strncpy(item->data, buf, BUFFER_SIZE);
+                        strncpy(item->data, buf + 1, BUFFER_SIZE);
                         LOGD(LOG_TAG, "Add to ul queue - item: %s\n", item->data);
                         pthread_mutex_lock(&mutex_upload);
                         TAILQ_INSERT_TAIL(&head_uq, item, entries);
@@ -110,11 +224,7 @@ void thread_download_handler(int *arg)
         // TODO
         {
             // Test
-            // URL input from stdin
-            // eg: 1http://chrishumboldt.com/
-            char cmd[512];
-            snprintf(cmd, sizeof(cmd), "wget %s", item->data);
-            system(cmd);
+            file_upload(item->data);
         }
         free(item);
     }
@@ -140,11 +250,18 @@ void thread_upload_handler(int *arg)
         item = TAILQ_FIRST(&head_uq);
         LOGD(LOG_TAG, "Retrieve from ul queue - item: %s\n", item->data);
         TAILQ_REMOVE(&head_uq, head_uq.tqh_first, entries);
-        free(item);
         pthread_mutex_unlock(&mutex_upload);
 
         // TODO
-        sleep(5);       // Simulate time for upload
+        {
+            // Test
+            // URL input from stdin
+            // eg: 1http://chrishumboldt.com/
+            char cmd[512];
+            snprintf(cmd, sizeof(cmd), "wget %s", item->data);
+            system(cmd);
+        }
+        free(item);
     }
     fprintf(stdout, "<- T - Upload\n");
 }

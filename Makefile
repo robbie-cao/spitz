@@ -18,7 +18,7 @@ ifeq ($(DEBUG),1)
 	CFLAGS+=-DDEBUG=1
 endif
 
-LDFLAGS = -L /usr/lib/x86_64-linux-gnu/ -L /usr/local/lib -lev -lpthread
+LDFLAGS = -L /usr/lib/x86_64-linux-gnu/ -L /usr/local/lib -lev -lpthread -lcurl
 
 %.o: %.c
 	@$(CC) $(CFLAGS) -c $< -o $@
