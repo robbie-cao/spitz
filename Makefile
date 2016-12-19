@@ -23,7 +23,7 @@ LDFLAGS = -L /usr/lib/x86_64-linux-gnu/ -L /usr/local/lib -lev -lpthread
 %.o: %.c
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-spitz: main.o
+spitz: main.o regex_wrapper.o
 	$(CC) $^  $(LDFLAGS) -o $@
 
 clean:
