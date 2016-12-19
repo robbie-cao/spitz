@@ -52,10 +52,10 @@ void thread_stdin_handler(int *arg)
 
             switch (buf[0]) {
                 case '1':
-                    if (buf[1] == '1') {
+                    if (strlen(buf + 1)) {
                         LOGD(LOG_TAG, "Wakeup T1\n");
                         item = malloc(sizeof(*item));
-                        strncpy(item->data, buf, BUFFER_SIZE);
+                        strncpy(item->data, buf + 1, BUFFER_SIZE);
                         LOGD(LOG_TAG, "Add to dl queue - item: %s\n", item->data);
                         pthread_mutex_lock(&mutex_download);
                         TAILQ_INSERT_TAIL(&head_dq, item, entries);
@@ -105,11 +105,18 @@ void thread_download_handler(int *arg)
         item = TAILQ_FIRST(&head_dq);
         LOGD(LOG_TAG, "Retrieve from dl queue - item: %s\n", item->data);
         TAILQ_REMOVE(&head_dq, head_dq.tqh_first, entries);
-        free(item);
         pthread_mutex_unlock(&mutex_download);
 
         // TODO
-        sleep(5);       // Simulate time for download
+        {
+            // Test
+            // URL input from stdin
+            // eg: 1http://chrishumboldt.com/
+            char cmd[512];
+            snprintf(cmd, sizeof(cmd), "wget %s", item->data);
+            system(cmd);
+        }
+        free(item);
     }
     fprintf(stdout, "<- T - Download\n");
 }
