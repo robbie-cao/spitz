@@ -172,6 +172,57 @@ int file_upload(char *file_path)
     return 0;
 }
 
+static size_t write_data(void *ptr, size_t size, size_t nmemb, void *stream)
+{
+    size_t written = fwrite(ptr, size, nmemb, (FILE *)stream);
+
+    return written;
+}
+
+int file_download(char *url)
+{
+    CURL *curl;
+    char filename[256];
+    FILE *fd;
+
+    /* tmep use rand number as file name */
+    time_t t;
+    srand((unsigned) time(&t));
+    sprintf(filename, "dl-%08d", rand());
+
+    /* init the curl session */
+    curl = curl_easy_init();
+
+    /* set URL to get here */
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+
+    /* switch on full protocol/debug output while testing */
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+    /* disable progress meter, set to 0L to enable and disable debug output */
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+
+    /* send all data to this function  */
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+
+    /* open the file */
+    fd = fopen(filename, "wb");
+    if(fd) {
+        /* write the page body to this file handle */
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fd);
+
+        /* get it! */
+        curl_easy_perform(curl);
+
+        /* close the header file */
+        fclose(fd);
+    }
+
+    /* cleanup curl stuff */
+    curl_easy_cleanup(curl);
+
+    return 0;
+}
 
 void thread_stdin_handler(int *arg)
 {
@@ -253,6 +304,9 @@ void thread_download_handler(int *arg)
         pthread_mutex_unlock(&mutex_download);
 
         // TODO
+#if 1
+        file_download(item->data);
+#else
         {
             // Test
             // URL input from stdin
@@ -261,6 +315,7 @@ void thread_download_handler(int *arg)
             snprintf(cmd, sizeof(cmd), "wget %s", item->data);
             system(cmd);
         }
+#endif
         free(item);
     }
     fprintf(stdout, "<- T - Download\n");
