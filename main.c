@@ -88,6 +88,7 @@ int file_upload(char *file_path)
     curl = curl_easy_init();
 
     if (!curl) {
+        fclose(fd);
         return 1;
     }
 
@@ -137,6 +138,7 @@ int file_upload(char *file_path)
     /* always cleanup */
     curl_easy_cleanup(curl);
     curl_formfree(post);
+    fclose(fd);
 
     return 0;
 }
@@ -224,7 +226,11 @@ void thread_download_handler(int *arg)
         // TODO
         {
             // Test
-            file_upload(item->data);
+            // URL input from stdin
+            // eg: 1http://chrishumboldt.com/
+            char cmd[512];
+            snprintf(cmd, sizeof(cmd), "wget %s", item->data);
+            system(cmd);
         }
         free(item);
     }
@@ -255,11 +261,7 @@ void thread_upload_handler(int *arg)
         // TODO
         {
             // Test
-            // URL input from stdin
-            // eg: 1http://chrishumboldt.com/
-            char cmd[512];
-            snprintf(cmd, sizeof(cmd), "wget %s", item->data);
-            system(cmd);
+            file_upload(item->data);
         }
         free(item);
     }
