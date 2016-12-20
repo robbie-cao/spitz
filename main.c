@@ -72,27 +72,13 @@ struct MemoryStruct {
 };
 
 static size_t
-WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
+upload_complete_cb(void *contents, size_t size, size_t nmemb, void *userp)
 {
     size_t realsize = size * nmemb;
-    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
 
-    mem->memory = realloc(mem->memory, mem->size + realsize + 1);
-    if(mem->memory == NULL) {
-        /* out of memory! */
-        printf("not enough memory (realloc returned NULL)\n");
-        return 0;
-    }
+    printf("\r\nUpload done. RESPONSE:%s\r\n", (char *)contents);
 
-    printf("\r\nGET RESPONSE:%s\r\n",(char *)contents);
-
-    memcpy(&(mem->memory[mem->size]), contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = 0;
-
-    free(mem->memory);
-
-    return realsize;
+   return realsize;
 }
 
 int file_upload(char *file_path)
@@ -136,7 +122,7 @@ int file_upload(char *file_path)
     curl_easy_setopt(curl, CURLOPT_URL,"http://test.muabaobao.com/record/upload");
 
     /* send all data to this function  */
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, upload_complete_cb);
 
     /* we pass our 'chunk' struct to the callback function */
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
