@@ -32,6 +32,39 @@ struct entry {
 
 TAILQ_HEAD(tailhead, entry) head_dq, head_uq;
 
+struct progress {
+    double lastruntime;
+    CURL *curl;
+};
+
+#define MINIMAL_PROGRESS_FUNCTIONALITY_INTERVAL     3
+
+/* this is how the CURLOPT_XFERINFOFUNCTION callback works */
+static int xferinfo(void *p,
+        curl_off_t dltotal, curl_off_t dlnow,
+        curl_off_t ultotal, curl_off_t ulnow)
+{
+    struct progress *myp = (struct progress *)p;
+    CURL *curl = myp->curl;
+    double curtime = 0;
+
+    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &curtime);
+
+    /* under certain circumstances it may be desirable for certain functionality
+       to only run every N seconds, in order to do this the transaction time can
+       be used */
+    if((curtime - myp->lastruntime) >= MINIMAL_PROGRESS_FUNCTIONALITY_INTERVAL) {
+        myp->lastruntime = curtime;
+        fprintf(stderr, "TOTAL TIME: %f \r\n", curtime);
+    }
+
+    fprintf(stderr, "UP: %" CURL_FORMAT_CURL_OFF_T " of %" CURL_FORMAT_CURL_OFF_T
+            "  DOWN: %" CURL_FORMAT_CURL_OFF_T " of %" CURL_FORMAT_CURL_OFF_T
+            "\r\n",
+            ulnow, ultotal, dlnow, dltotal);
+
+    return 0;
+}
 
 struct MemoryStruct {
     char *memory;
@@ -71,6 +104,7 @@ int file_upload(char *file_path)
     FILE *fd;
 
     struct MemoryStruct chunk;
+    struct progress prog;
 
     chunk.memory = malloc(1);  /* will be grown as needed by the realloc above */
     chunk.size = 0;    /* no data at this point */
@@ -121,7 +155,15 @@ int file_upload(char *file_path)
     /* enable verbose for easier tracing */
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo);
+    /* pass the struct pointer into the xferinfo function, note that this is
+       an alias to CURLOPT_PROGRESSDATA */
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog);
+
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+
     res = curl_easy_perform(curl);
+
     /* Check for errors */
     if (res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() failed: %s\n",
@@ -135,6 +177,7 @@ int file_upload(char *file_path)
         fprintf(stderr, "Speed: %.3f bytes/sec during %.3f seconds\n",
                 speed_upload, total_time);
     }
+
     /* always cleanup */
     curl_easy_cleanup(curl);
     curl_formfree(post);
