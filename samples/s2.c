@@ -101,10 +101,8 @@ int main(void) {
     step = sqlite3_step(res);
 
     if (step == SQLITE_ROW) {
-
         printf("%s: ", sqlite3_column_text(res, 0));
         printf("%s\n", sqlite3_column_text(res, 1));
-
     }
 
     sqlite3_finalize(res);
@@ -119,23 +117,64 @@ int main(void) {
         // returns the index of an SQL parameter given its name
         int idx = sqlite3_bind_parameter_index(res, "@id");
         int value = 4;
+
         sqlite3_bind_int(res, idx, value);
-
     } else {
-
         fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
     }
 
     step = sqlite3_step(res);
 
     if (step == SQLITE_ROW) {
-
         printf("%s: ", sqlite3_column_text(res, 0));
         printf("%s\n", sqlite3_column_text(res, 1));
-
     }
 
     sqlite3_finalize(res);
+
+    //
+    sql = "SELECT * FROM Cars";
+    rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+    if (rc == SQLITE_OK) {
+    } else {
+        fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+    }
+    step = sqlite3_step(res);
+    if (step == SQLITE_ROW) {
+        printf("Total column %d\n", sqlite3_column_count(res));
+        printf("Total row %d\n", sqlite3_data_count(res));
+    }
+    sqlite3_finalize(res);
+
+    //
+    sql = "SELECT COUNT(*) FROM Cars";
+    rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+    if (rc == SQLITE_OK) {
+    } else {
+        fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+    }
+    step = sqlite3_step(res);
+    if (step == SQLITE_ROW) {
+        printf("Total %d\n", sqlite3_column_int(res, 0));
+    }
+    sqlite3_finalize(res);
+
+    //
+    sql = "SELECT * FROM Cars WHERE Id=8";
+    rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+    if (rc == SQLITE_OK) {
+    } else {
+        fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+    }
+    step = sqlite3_step(res);
+    if (step == SQLITE_ROW) {
+        printf("Result %s\n", sqlite3_column_text(res, 0));
+        printf("Result %s\n", sqlite3_column_text(res, 1));
+    } else {
+        printf("Not found\n");
+    }
+    sqlite3_finalize(res);
+
 
     sqlite3_close(db);
 
