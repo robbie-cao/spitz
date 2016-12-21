@@ -1,10 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <sqlite3.h>
-
 /**
  * gcc s1.c -lsqlite3 -o s1
  */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sqlite3.h>
 
 static int callback(void *NotUsed, int argc, char **argv, char **azColName)
 {
@@ -32,12 +32,12 @@ int main(int argc, char* argv[])
     printf("source id: %s\n", sqlite3_sourceid());
     printf("threadsafe: %d\n", sqlite3_threadsafe());
 
-    rc = sqlite3_open("test.db", &db);
+    rc = sqlite3_open("s1.db", &db);
 
     if (rc) {
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
 
-        return(0);
+        return 1;
     }
     fprintf(stderr, "Opened database successfully\n");
 
