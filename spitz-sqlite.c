@@ -5,6 +5,8 @@
 #include <pthread.h>
 #include <fcntl.h>
 
+#include <sqlite3.h>
+
 #include <sys/select.h>
 #include <sys/queue.h>
 
@@ -16,6 +18,9 @@
 
 #define BUFFER_SIZE         256
 
+#define DB_DOWNLOAD         "fqd.db"
+#define DB_UPLOAD           "fqu.db"
+
 static char buf[BUFFER_SIZE];
 
 pthread_t thread_stdin, thread_download, thread_upload;
@@ -23,14 +28,6 @@ pthread_mutex_t mutex_download = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_upload = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cv_download = PTHREAD_COND_INITIALIZER;
 pthread_cond_t cv_upload = PTHREAD_COND_INITIALIZER;
-
-struct tailhead *headp;                 /*  Tail queue head. */
-struct entry {
-    TAILQ_ENTRY(entry) entries;         /*  Tail queue. */
-    char data[BUFFER_SIZE];
-};
-
-TAILQ_HEAD(tailhead, entry) head_dq, head_uq;
 
 struct progress {
     double lastruntime;
@@ -227,7 +224,12 @@ int file_download(char *url)
 void thread_stdin_handler(int *arg)
 {
     const char *LOG_TAG = "IN";
-    struct entry *item;
+    sqlite3 *db_dl, *db_ul;
+    sqlite3_stmt *res;
+    char *err_msg = 0;
+    char *sql;
+    int step;
+    int rc = 0;
 
     fd_set readfds;
 
@@ -238,6 +240,20 @@ void thread_stdin_handler(int *arg)
     FD_ZERO(&readfds);
     FD_SET(STDIN_FILENO, &readfds);
 
+    rc = sqlite3_open(DB_DOWNLOAD, &db_dl);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db_dl));
+        sqlite3_close(db_dl);
+
+        exit(1);
+    }
+    rc = sqlite3_open(DB_UPLOAD, &db_ul);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db_ul));
+        sqlite3_close(db_ul);
+
+        exit(1);
+    }
     while (1) {
         if (select(1, &readfds, NULL, NULL, NULL)) {
             int ret = scanf("%s", buf);
@@ -250,11 +266,18 @@ void thread_stdin_handler(int *arg)
                 case '1':
                     if (strlen(buf + 1)) {
                         LOGD(LOG_TAG, "Wakeup T1\n");
-                        item = malloc(sizeof(*item));
-                        strncpy(item->data, buf + 1, BUFFER_SIZE);
-                        LOGD(LOG_TAG, "Add to dl queue - item: %s\n", item->data);
+                        LOGD(LOG_TAG, "Add to dl queue - item: %s\n", buf + 1);
                         pthread_mutex_lock(&mutex_download);
-                        TAILQ_INSERT_TAIL(&head_dq, item, entries);
+                        sql = "INSERT INTO tbl_download(url) VALUES (@url)";
+                        rc = sqlite3_prepare_v2(db_dl, sql, -1, &res, 0);
+                        if (rc == SQLITE_OK) {
+                            int idx = sqlite3_bind_parameter_index(res, "@url");
+                            sqlite3_bind_text(res, idx, buf + 1, -1, SQLITE_STATIC);
+                        } else {
+                            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db_dl));
+                        }
+                        step = sqlite3_step(res);
+                        sqlite3_finalize(res);
                         pthread_cond_signal(&cv_download);
                         pthread_mutex_unlock(&mutex_download);
                     }
@@ -263,11 +286,18 @@ void thread_stdin_handler(int *arg)
                     LOGD(LOG_TAG, "Wakeup T2\n");
                     if (strlen(buf + 1)) {
                         LOGD(LOG_TAG, "Wakeup T2\n");
-                        item = malloc(sizeof(*item));
-                        strncpy(item->data, buf + 1, BUFFER_SIZE);
-                        LOGD(LOG_TAG, "Add to ul queue - item: %s\n", item->data);
+                        LOGD(LOG_TAG, "Add to ul queue - item: %s\n", buf + 1);
                         pthread_mutex_lock(&mutex_upload);
-                        TAILQ_INSERT_TAIL(&head_uq, item, entries);
+                        sql = "INSERT INTO tbl_upload(path) VALUES (@path)";
+                        rc = sqlite3_prepare_v2(db_ul, sql, -1, &res, 0);
+                        if (rc == SQLITE_OK) {
+                            int idx = sqlite3_bind_parameter_index(res, "@path");
+                            sqlite3_bind_text(res, idx, buf + 1, -1, SQLITE_STATIC);
+                        } else {
+                            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db_ul));
+                        }
+                        step = sqlite3_step(res);
+                        sqlite3_finalize(res);
                         pthread_cond_signal(&cv_upload);
                         pthread_mutex_unlock(&mutex_upload);
                     }
@@ -279,85 +309,234 @@ void thread_stdin_handler(int *arg)
 
         printf("...\n");
     }
+    sqlite3_close(db_dl);
+    sqlite3_close(db_ul);
     fprintf(stdout, "<- T - Input\n");
 }
 
 void thread_download_handler(int *arg)
 {
     const char *LOG_TAG = "DL";
-    struct entry *item;
+    sqlite3 *db;
+    sqlite3_stmt *res;
+    char *err_msg = 0;
+    char *sql;
+    int step;
+    int rc = 0;
+
+    char buffer[BUFFER_SIZE];
 
     (void) arg;     // Make compiler happy
 
     fprintf(stdout, "-> T - Download\n");
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+
+    rc = sqlite3_open(DB_DOWNLOAD, &db);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+
+        exit(1);
+    }
+
     while (1) {
+        int remained = 0;
+        int id = 0;
+
         pthread_mutex_lock(&mutex_download);
-        if (TAILQ_EMPTY(&head_dq)) {
+        sql = "SELECT COUNT(*) FROM tbl_download";
+        rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+        if (rc == SQLITE_OK) {
+        } else {
+            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+        }
+        step = sqlite3_step(res);
+        if (step == SQLITE_ROW) {
+            remained = sqlite3_column_int(res, 0);
+            printf("Remained %d to download\n", remained);
+        }
+        sqlite3_finalize(res);
+        if (!remained) {
             LOGD(LOG_TAG, "Sleeping\n");
             pthread_cond_wait(&cv_download, &mutex_download);
         }
         LOGD(LOG_TAG, "Wakeup\n");
-        item = TAILQ_FIRST(&head_dq);
-        LOGD(LOG_TAG, "Retrieve from dl queue - item: %s\n", item->data);
-        TAILQ_REMOVE(&head_dq, head_dq.tqh_first, entries);
+        sql = "SELECT id, url FROM tbl_download ORDER BY id LIMIT 1";
+        rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+        if (rc == SQLITE_OK) {
+        } else {
+            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+        }
+        step = sqlite3_step(res);
+        if (step == SQLITE_ROW) {
+            const char *url = sqlite3_column_text(res, 1);
+            id = sqlite3_column_int(res, 0);
+            LOGD(LOG_TAG, "Retrieve from dl queue - item: %s\n", url);
+            strncpy(buffer, url, BUFFER_SIZE);
+        }
+        sqlite3_finalize(res);
         pthread_mutex_unlock(&mutex_download);
 
-        // TODO
-#if 1
-        file_download(item->data);
-#else
-        {
-            // Test
-            // URL input from stdin
-            // eg: 1http://chrishumboldt.com/
-            char cmd[512];
-            snprintf(cmd, sizeof(cmd), "wget %s", item->data);
-            system(cmd);
+        file_download(buffer);
+
+        pthread_mutex_lock(&mutex_download);
+        sql = "DELETE FROM tbl_download WHERE id = ?";
+        rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int(res, 1, id);
+        } else {
+            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
         }
-#endif
-        free(item);
+        step = sqlite3_step(res);
+        sqlite3_finalize(res);
+        pthread_mutex_unlock(&mutex_download);
     }
+    sqlite3_close(db);
     fprintf(stdout, "<- T - Download\n");
 }
 
 void thread_upload_handler(int *arg)
 {
     const char *LOG_TAG = "UL";
-    struct entry *item;
+    sqlite3 *db;
+    sqlite3_stmt *res;
+    char *err_msg = 0;
+    char *sql;
+    int step;
+    int rc = 0;
+
+    char buffer[BUFFER_SIZE];
 
     (void) arg;     // Make compiler happy
 
     fprintf(stdout, "-> T - Upload\n");
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+
+    rc = sqlite3_open(DB_UPLOAD, &db);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+
+        exit(1);
+    }
+
     while (1) {
+        int remained = 0;
+        int id = 0;
+
         pthread_mutex_lock(&mutex_upload);
-        if (TAILQ_EMPTY(&head_uq)) {
+        sql = "SELECT COUNT(*) FROM tbl_upload";
+        rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+        if (rc == SQLITE_OK) {
+        } else {
+            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+        }
+        step = sqlite3_step(res);
+        if (step == SQLITE_ROW) {
+            remained = sqlite3_column_int(res, 0);
+            printf("Remained %d to upload\n", remained);
+        }
+        sqlite3_finalize(res);
+        if (!remained) {
             LOGD(LOG_TAG, "Sleeping\n");
             pthread_cond_wait(&cv_upload, &mutex_upload);
         }
         LOGD(LOG_TAG, "Wakeup\n");
-        item = TAILQ_FIRST(&head_uq);
-        LOGD(LOG_TAG, "Retrieve from ul queue - item: %s\n", item->data);
-        TAILQ_REMOVE(&head_uq, head_uq.tqh_first, entries);
+        sql = "SELECT id, path FROM tbl_upload ORDER BY id LIMIT 1";
+        rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+        if (rc == SQLITE_OK) {
+        } else {
+            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
+        }
+        step = sqlite3_step(res);
+        if (step == SQLITE_ROW) {
+            const char *path = sqlite3_column_text(res, 1);
+            id = sqlite3_column_int(res, 0);
+            LOGD(LOG_TAG, "Retrieve from ul queue - item: %s\n", path);
+            strncpy(buffer, path, BUFFER_SIZE);
+        }
+        sqlite3_finalize(res);
         pthread_mutex_unlock(&mutex_upload);
 
-        // TODO
-        {
-            // Test
-            file_upload(item->data);
+        file_upload(buffer);
+
+        pthread_mutex_lock(&mutex_upload);
+        sql = "DELETE FROM tbl_upload WHERE id = ?";
+        rc = sqlite3_prepare_v2(db, sql, -1, &res, 0);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int(res, 1, id);
+        } else {
+            fprintf(stderr, "Failed to execute statement: %s\n", sqlite3_errmsg(db));
         }
-        free(item);
+        step = sqlite3_step(res);
+        sqlite3_finalize(res);
+        pthread_mutex_unlock(&mutex_upload);
     }
     fprintf(stdout, "<- T - Upload\n");
+}
+
+int db_init(void)
+{
+    sqlite3 *db;
+    char *err_msg = 0;
+    char *sql;
+    int rc = 0;
+
+    printf("sqlite3 v%s\n", sqlite3_libversion());
+
+    rc = sqlite3_open(DB_DOWNLOAD, &db);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+
+        return 1;
+    }
+
+    sql = "CREATE TABLE IF NOT EXISTS tbl_download (id INTEGER PRIMARY KEY, url TEXT);";
+    rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+    if (rc != SQLITE_OK ) {
+        fprintf(stderr, "SQL error: %s\n", err_msg);
+
+        sqlite3_free(err_msg);
+        sqlite3_close(db);
+
+        return 1;
+    }
+
+    sqlite3_close(db);
+
+    rc = sqlite3_open(DB_UPLOAD, &db);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+
+        return 1;
+    }
+
+    sql = "CREATE TABLE IF NOT EXISTS tbl_upload (id INTEGER PRIMARY KEY, path TEXT);";
+    rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+    if (rc != SQLITE_OK ) {
+        fprintf(stderr, "SQL error: %s\n", err_msg);
+
+        sqlite3_free(err_msg);
+        sqlite3_close(db);
+
+        return 1;
+    }
+
+    sqlite3_close(db);
+
+    return 0;
 }
 
 int main (void)
 {
     fprintf(stdout, "Welcome - %s %s\n", __DATE__, __TIME__);
 
-    TAILQ_INIT(&head_dq);                   /*  Initialize the queue. */
-    TAILQ_INIT(&head_uq);                   /*  Initialize the queue. */
+    if (db_init()) {
+        fprintf(stderr, "Fail to init database\n");
+        return 1;
+    }
 
     pthread_create(&thread_stdin,
             NULL,
