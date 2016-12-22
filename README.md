@@ -9,6 +9,15 @@ A multi-thread file service:
   * remove
   * ...
 
+## Setup
+
+```shell
+$ sudo apt-get install curl wget
+$ sudo apt-get install libcurl4-openssl-dev
+$ sudo apt-get install libev-dev
+$ sudo apt-get install sqlite3 libsqlite3-dev
+```
+
 ## Reference
 
 - http://maxim.int.ru/bookshelf/PthreadsProgram/toc.html
