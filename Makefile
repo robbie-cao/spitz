@@ -2,7 +2,7 @@ all: target
 FORCE: ;
 .PHONY: FORCE
 
-program= spitz
+program = spitz-tailq spitz-sqlite
 
 target: $(program)
 
@@ -23,7 +23,10 @@ LDFLAGS = -L /usr/lib/x86_64-linux-gnu/ -L /usr/local/lib -lev -lpthread -lcurl
 %.o: %.c
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-spitz: main.o regex_wrapper.o
+spitz-tailq: spitz-tailq.o
+	$(CC) $^  $(LDFLAGS) -o $@
+
+spitz-sqlite: spitz-sqlite.o
 	$(CC) $^  $(LDFLAGS) -o $@
 
 clean:
