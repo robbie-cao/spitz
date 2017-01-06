@@ -8,7 +8,8 @@
 #include <stdlib.h>
 #include <sqlite3.h>
 
-int main(void) {
+int main(void)
+{
 
     sqlite3 *db;
     sqlite3_stmt *res;
@@ -27,7 +28,6 @@ int main(void) {
 
         return 1;
     }
-
     // statements create a Cars table and fill it with data.
     sql = "DROP TABLE IF EXISTS Cars;"
         "CREATE TABLE Cars(Id INT, Name TEXT, Price INT);"
@@ -37,12 +37,11 @@ int main(void) {
         "INSERT INTO Cars VALUES(4, 'Volvo', 29000);"
         "INSERT INTO Cars VALUES(5, 'Bentley', 350000);"
         "INSERT INTO Cars VALUES(6, 'Citroen', 21000);"
-        "INSERT INTO Cars VALUES(7, 'Hummer', 41400);"
-        "INSERT INTO Cars VALUES(8, 'Volkswagen', 21600);";
+        "INSERT INTO Cars VALUES(7, 'Hummer', 41400);" "INSERT INTO Cars VALUES(8, 'Volkswagen', 21600);";
 
     rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
 
-    if (rc != SQLITE_OK ) {
+    if (rc != SQLITE_OK) {
 
         fprintf(stderr, "SQL error: %s\n", err_msg);
 
@@ -51,7 +50,6 @@ int main(void) {
 
         return 1;
     }
-
     // In SQLite, INTEGER PRIMARY KEY column is auto-incremented.
     // There is also an AUTOINCREMENT keyword.
     // When applied in INTEGER PRIMARY KEY AUTOINCREMENT a slightly
@@ -63,12 +61,11 @@ int main(void) {
         "INSERT INTO Friends(Name) VALUES ('Tom');"
         "INSERT INTO Friends(Name) VALUES ('Rebecca');"
         "INSERT INTO Friends(Name) VALUES ('Jim');"
-        "INSERT INTO Friends(Name) VALUES ('Roger');"
-        "INSERT INTO Friends(Name) VALUES ('Robert');";
+        "INSERT INTO Friends(Name) VALUES ('Roger');" "INSERT INTO Friends(Name) VALUES ('Robert');";
 
     rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
 
-    if (rc != SQLITE_OK ) {
+    if (rc != SQLITE_OK) {
         fprintf(stderr, "Failed to create table\n");
         fprintf(stderr, "SQL error: %s\n", err_msg);
         sqlite3_free(err_msg);
@@ -79,7 +76,6 @@ int main(void) {
     // Returns the row Id of the most recent successfull insert into the table
     int last_id = sqlite3_last_insert_rowid(db);
     printf("The last Id of the inserted row is %d\n", last_id);
-
 
     // Question mark (?) is used as a placeholder which is later replaced with an actual value
     sql = "SELECT Id, Name FROM Cars WHERE Id = ?";
@@ -106,7 +102,6 @@ int main(void) {
     }
 
     sqlite3_finalize(res);
-
 
     // Named placeholders are prefixed with the colon (:) character or the at-sign (@) character
     sql = "SELECT Id, Name FROM Cars WHERE Id = @id";
@@ -174,7 +169,6 @@ int main(void) {
         printf("Not found\n");
     }
     sqlite3_finalize(res);
-
 
     sqlite3_close(db);
 

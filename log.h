@@ -114,6 +114,6 @@
 #define DD(fmt, arg...)                 printf("* L%d, %s: " fmt, __LINE__, __FUNCTION__, ##arg)
 #define DDD(fmt, arg...)                printf("* L%d: " fmt, __LINE__, ##arg)
 
-#endif /* __LOG_H__ */
+#endif                          /* __LOG_H__ */
 
 /* vim: set ts=4 sw=4 tw=0 list : */
